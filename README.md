@@ -32,7 +32,7 @@ Uses the path currently configured for the Gobuster executable.
 Example:
 
 ```
-$go dir -u example.com -w wordlist
+$go dir -u example.com -w $word
 ```
 
 ---
