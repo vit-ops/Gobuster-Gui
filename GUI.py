@@ -179,7 +179,7 @@ inputCommand.setStyleSheet("""
         color: #00FF00;
         font-family: Consolas, "Courier New", monospace;
         font-size: 10pt;
-        border: none;      /* SEM BORDA */
+        border: none;
         padding: 6px;
     }
     QLineEdit::placeholder {
@@ -201,3 +201,4 @@ janela.closeEvent = lambda event: QUIT(
 
 janela.show()
 app.exec()
+
