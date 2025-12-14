@@ -1,204 +1,253 @@
+import os, subprocess, configparser, sys
 try:
-    import os
-    import sys
-    import shlex
-    import configparser
-    import subprocess
-    import re
     from PySide6.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QLineEdit, QTextEdit
+        QApplication, QWidget, QVBoxLayout,
+        QLineEdit, QTextEdit
     )
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QFont
-except ImportError as e:
-    print("Missing dependency:", e)
-    os.system("pip install PySide6")
-
-
-
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "PySide6"])
+    from PySide6.QtWidgets import (
+        QApplication, QWidget, QVBoxLayout,
+        QLineEdit, QTextEdit
+    )
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QFont
 
 class OutputArea(QTextEdit):
     def __init__(self):
         super().__init__()
         self.setReadOnly(True)
-        self.setStyleSheet("""
-            QTextEdit {
-                background-color: #000000;
-                color: #00FF00;
-                font-family: Consolas, "Courier New", monospace;
-                font-size: 10pt;
-                border: none;
-                padding: 4px;
-            }
-        """)
         self.setLineWrapMode(QTextEdit.NoWrap)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-
     def append(self, text: str):
         super().append(text)
         self.verticalScrollBar().setValue(self.verticalScrollBar().maximum())
 
-    def clear(self):
-        super().clear()
-
-
 
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "configs_gobuster.cfg")
+HELP_TEXT = """
+Gobuster GUI - Help
+==================
+
+USO GERAL
+---------
+Digite comandos como em um terminal normal.
+A aplicação executa comandos do sistema e substitui aliases automaticamente.
+
+
+ALIASES
+-------
+@go, @gobuster
+    Usa o caminho configurado para o executável do Gobuster.
+
+@w, @word
+    Usa o caminho configurado para a wordlist configurada.
+
+@l, @last
+    Executa o último comando salvo pela aplicação.
+
+
+COMANDOS DE CONTROLE
+-------------------
+clear
+    Limpa a tela do terminal.
+
+exit
+    Fecha o programa.
+
+
+CONFIGURAÇÃO
+------------
+@ move <gobuster_path> <wordlist_path>
+    Define o caminho do Gobuster e da wordlist.
+    Use $, null ou none para manter os valores atuais.
+
+@ list
+    Exibe todas as configurações atuais:
+        - Caminho do Gobuster
+        - Caminho da wordlist
+        - Último comando salvo
+
+
+EXECUÇÃO DE COMANDOS
+-------------------
+Qualquer comando que não seja interno será executado no sistema.
+
+
+GOBUSTER - EXEMPLOS PRÁTICOS
+----------------------------
+Scan de diretórios:
+        @go dir -u http://example.com -w @word
+
+Scan com extensões:
+        @go dir -u http://example.com -w @word -x php,txt,html
+
+Scan DNS:
+        @go dns -d example.com -w @word
+
+Scan VHOST:
+        @go vhost -u example.com -w @word
+
+Executar último comando:
+        @l
+
+
+OBSERVAÇÕES
+-----------
+- Gobuster é obrigatório para o funcionamento
+- Não precisa estar no PATH do sistema
+- Suporta versões portáteis
+- A aplicação é apenas uma interface de usabilidade
+"""
 
 def QUIT(command):
     global gobuster_path, last_command, wordlist
     cfg = configparser.ConfigParser()
-    if os.path.exists(CONFIG_FILE):
-        cfg.read(CONFIG_FILE, encoding="utf-8")
-    else:
-        cfg["CONFIG"] = {"gobuster_path": "", "last_command": "", "wordlist": ""}
-
-    if "CONFIG" not in cfg:
-        cfg["CONFIG"] = {}
-
-    cfg["CONFIG"]["last_command"] = command
-    cfg["CONFIG"]["gobuster_path"] = gobuster_path
-    cfg["CONFIG"]["wordlist"] = wordlist
-
+    cfg["CONFIG"] = {
+        "gobuster_path": gobuster_path,
+        "last_command": command,
+        "wordlist": wordlist
+    }
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         cfg.write(f)
-
     quit()
 
 def DADOS():
     cfg = configparser.ConfigParser()
     if not os.path.exists(CONFIG_FILE):
-        cfg["CONFIG"] = {"gobuster_path": "", "last_command": "", "wordlist": ""}
+        cfg["CONFIG"] = {
+            "gobuster_path": "",
+            "last_command": "",
+            "wordlist": ""
+        }
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             cfg.write(f)
-    try:
-        cfg.read(CONFIG_FILE, encoding="utf-8")
-        if "CONFIG" not in cfg or \
-           "gobuster_path" not in cfg["CONFIG"] or \
-           "last_command" not in cfg["CONFIG"] or \
-           "wordlist" not in cfg["CONFIG"]:
-            cfg["CONFIG"] = {"gobuster_path": "", "last_command": "", "wordlist": ""}
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                cfg.write(f)
-        gobuster_path = cfg["CONFIG"].get("gobuster_path", "")
-        last_command = cfg["CONFIG"].get("last_command", "")
-        wordlist = cfg["CONFIG"].get("wordlist", "")
-        return gobuster_path, last_command, wordlist
-    except Exception:
-        cfg["CONFIG"] = {"gobuster_path": "", "last_command": "", "wordlist": ""}
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            cfg.write(f)
-        return "", "", ""
+
+    cfg.read(CONFIG_FILE, encoding="utf-8")
+    c = cfg["CONFIG"]
+    return (
+        c.get("gobuster_path", ""),
+        c.get("last_command", ""),
+        c.get("wordlist", "")
+    )
 
 gobuster_path, last_command, wordlist = DADOS()
-
 list_commands = []
+
 
 def readArgs(text):
     args = text.split()
     for i, arg in enumerate(args):
-        if arg.lower() in ("$go", "$gobuster"):
+        if arg.lower() in ("@go", "@gobuster"):
             args[i] = gobuster_path
-        elif arg.lower() in ("$w", "$word"):
+        elif arg.lower() in ("@w", "@word"):
             args[i] = wordlist
-        elif arg.lower() in ("$l", "$last"):
+        elif arg.lower() in ("@l", "@last"):
             args[i] = last_command
     return " ".join(args)
 
 def commands(inputCommand):
     global gobuster_path, last_command, wordlist
-    command = inputCommand.text()
 
+    command = inputCommand.text().strip()
     if not command:
         return
-    
-    command  = readArgs(command)
-    
-    if command.lower() == "exit":
-        last = list_commands[len(list_commands) - 1]
-        QUIT(last)
-        return
-
-    if command[:3] == "$$$":
-        args = command[3:].split()
-        match args[0].lower():
-            case "move":
-                if len(args) < 3:
-                    return
-                if args[1].lower() not in ("$", "null", "none"):
-                    gobuster_path = args[1]
-
-                if args[2].lower() not in ("$", "null", "none"):
-                    wordlist = args[2]
-                output.clear()
-                output.append(f"gobuster path : {gobuster_path} & wordilist path : {wordlist}")
-            case "list":
-                output.clear()
-                output.append(f"gobuster path : {gobuster_path} & wordilist path : {wordlist} & last_command(save) : {last_command}")    
-        inputCommand.setText("")
-        return           
-        
-    if(command.lower() == "clear"):
+    if(command.lower() in ("@h", "@help")):
         output.clear()
-        inputCommand.setText("")
+        output.append(HELP_TEXT)
+        inputCommand.clear()
         return
-    
+
+    command = readArgs(command)
+
+    if command.lower() == "exit":
+        QUIT(list_commands[-1] if list_commands else last_command)
+
+    if command[1:] == "@":
+        args = command[1:].split()
+        if args[0].lower() == "move" and len(args) >= 3:
+            if args[1] not in ("$", "null", "none"):
+                gobuster_path = args[1]
+            if args[2] not in ("$", "null", "none"):
+                wordlist = args[2]
+            output.clear()
+            output.append(f"gobuster: {gobuster_path}\nwordlist: {wordlist}")
+
+        elif args[0].lower() == "list":
+            output.clear()
+            output.append(
+                f"gobuster: {gobuster_path}\n"
+                f"wordlist: {wordlist}\n"
+                f"last: {last_command}"
+            )
+
+        inputCommand.clear()
+        return
+
+    if command.lower() == "clear":
+        output.clear()
+        inputCommand.clear()
+        return
+
     result = subprocess.getoutput(command)
     output.append(result)
-
     list_commands.append(command)
-    inputCommand.setText("")
+    inputCommand.clear()
 
+style = """
+QWidget {
+    background-color: #1e1e1e;
+    color: #00FF00;
+    font-family: Consolas, "Courier New", monospace;
+}
+
+QTextEdit {
+    background-color: #1e1e1e;
+    color: #00FF00;
+    border: none;
+    padding: 12px;
+    font-size: 12pt;
+}
+
+QLineEdit {
+    background-color: #1e1e1e;
+    color: #00FF00;
+    border: none;
+    border-top: 1px solid #333;
+    padding: 10px;
+    font-size: 12pt;
+}
+
+QLineEdit::placeholder {
+    color: #555;
+}
+"""
 
 app = QApplication([])
+app.setStyleSheet(style)
 
-janela = QWidget()
-janela.setWindowTitle("Gobuster GUI")
-janela.resize(550, 350)
+main = QWidget()
+main.setWindowTitle("Gobuster GUI")
+main.resize(900, 600)
 
-
-janela.setStyleSheet("""
-    QWidget {
-        background-color: #000000;
-        color: #00FF00;
-        font-family: Consolas, "Courier New", monospace;
-    }
-""")
+layout = QVBoxLayout(main)
+layout.setSpacing(0)
+layout.setContentsMargins(0, 0, 0, 0)
 
 output = OutputArea()
 
 inputCommand = QLineEdit()
-inputCommand.setFont(QFont("Consolas", 10))
-inputCommand.setPlaceholderText("Digite seu comando:")
+inputCommand.setPlaceholderText("Type a command...")
 inputCommand.returnPressed.connect(lambda: commands(inputCommand))
 
-
-inputCommand.setStyleSheet("""
-    QLineEdit {
-        background-color: #000000;
-        color: #00FF00;
-        font-family: Consolas, "Courier New", monospace;
-        font-size: 10pt;
-        border: none;
-        padding: 6px;
-    }
-    QLineEdit::placeholder {
-        color: #00FF00;
-    }
-""")
-
-layout = QVBoxLayout()
 layout.addWidget(output)
 layout.addWidget(inputCommand)
-layout.setContentsMargins(0, 0, 0, 0)
-layout.setSpacing(0)
 
-janela.setLayout(layout)
-
-janela.closeEvent = lambda event: QUIT(
-    list_commands[len(list_commands) - 1] if len(list_commands) >= 1 else last_command
+main.closeEvent = lambda: QUIT(
+    list_commands[-1] if list_commands else last_command
 )
 
-janela.show()
+main.show()
 app.exec()
-
